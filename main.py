@@ -1,10 +1,13 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import requests
 from bs4 import BeautifulSoup
 
 # Discord bot setup
 bot = commands.Bot(command_prefix=".", intents=discord.Intents.all())
+
+# Global variable to store the last seen product ID
+last_seen_id = None
 
 # Function to scrape deals from Evike
 def scrape_evike_deals():
@@ -29,6 +32,8 @@ def scrape_evike_deals():
         image_url = image_tag['src'] if image_tag else None
         link_tag = deal.find('a')
         product_link = link_tag['href'] if link_tag else None
+        id_span = deal.find('span', id=lambda x: x and x.startswith('pid'))
+        product_id = id_span.text.strip() if id_span else 'N/A'
 
         # Append deal to list
         deals.append({
@@ -37,13 +42,47 @@ def scrape_evike_deals():
             "discount": discount,
             "image_url": image_url,
             "link": product_link,
+            "product_id": product_id,
         })
 
     return deals
 
+# Task to periodically scrape and send updates
+@tasks.loop(minutes=1)
+async def update_deals():
+    global last_seen_id  # Access the global variable
+    channel_id = 123456789012345678  # Replace with your channel ID
+    channel = bot.get_channel(channel_id)
+
+    if channel is not None:
+        evike_deals = scrape_evike_deals()
+
+        # Check if the first deal's product ID matches the last seen ID
+        if evike_deals and evike_deals[0]['product_id'] != last_seen_id:
+            # Update the last seen ID to the current first deal's ID
+            last_seen_id = evike_deals[0]['product_id']
+
+            # Post new deals
+            for deal in evike_deals:
+                embeded_msg = discord.Embed(
+                    title=f"{deal['name']} - [View Deal]({deal['link']})",
+                    description=f"Discounted Price: **{deal['price']}**",
+                    color=discord.Color.red()
+                )
+                embeded_msg.set_thumbnail(url=bot.user.display_avatar.url)  # Bot avatar as thumbnail
+                embeded_msg.add_field(name=f"{deal['discount']}", value=f"Product ID: {deal['product_id']}", inline=False)
+
+                if deal['image_url']:
+                    embeded_msg.set_image(url=deal['image_url'])
+
+                await channel.send(embed=embeded_msg)
+        else:
+            print("No new deals found.")
+
 @bot.event
 async def on_ready():
     print("Bot ready!")
+    update_deals.start()  # Start the periodic task when the bot is ready
 
 @bot.command()
 async def deals(ctx):
@@ -58,56 +97,14 @@ async def deals(ctx):
             color=discord.Color.red()
         )
         embeded_msg.set_thumbnail(url=bot.user.display_avatar.url)  # Bot avatar as thumbnail
-        embeded_msg.add_field(name=f"{deal['discount']}", value=f"Link: {deal['link']}", inline=False)
+        embeded_msg.add_field(name=f"{deal['discount']}", value=f"Product ID: {deal['product_id']}", inline=False)
+
         if deal['image_url']:
             embeded_msg.set_image(url=deal['image_url'])
-        embeded_msg.set_footer(text="Grab it before it's gone!")
+
         await ctx.send(embed=embeded_msg)
 
 with open("token.txt") as file:
     token = file.read()
 
 bot.run(token)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-@bot.command()
-async def JohnEvike(ctx):
-    await ctx.send(f"{ctx.author.mention} I'm John Evike")
-
-@bot.command()
-async def sendembed(ctx):
-    embeded_msg = discord.Embed(title="Title of Embed", description="Desription od Embed", color=discord.Color.random())
-    embeded_msg.set_author(name="Author Text", icon_url=ctx.author.avatar)
-    embeded_msg.set_thumbnail(url=ctx.author.avatar)
-    embeded_msg.add_field(name="Name of Field", value="Value of Field", inline=False)
-    embeded_msg.set_image(url=ctx.guild.icon)
-    embeded_msg.set_footer(text="Footer Text", icon_url=ctx.author.avatar)
-    await ctx.send(embed=embeded_msg)
-    
-@bot.command()
-async def ping(ctx):
-    ping_embed = discord.Embed(title="Ping", description="Latency in ms", color=discord.Color.yellow())
-    ping_embed.add_field(name=f"{bot.user.name}'s Latency (ms): ", value=f"{round(bot.latency * 1000)}ms.", inline=False)
-    ping_embed.set_footer(text=f"Requested by {ctx.author.name}.", icon_url=ctx.author.avatar)
-    await ctx.send(embed=ping_embed)
