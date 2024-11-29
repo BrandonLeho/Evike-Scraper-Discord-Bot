@@ -39,7 +39,7 @@ def scrape_evike_deals():
 
     return deals
 
-@tasks.loop(seconds=10)
+@tasks.loop(minutes = 1)
 async def update_deals():
     global last_seen_ids
     channel_id = 1301969132178374737
@@ -66,7 +66,7 @@ async def update_deals():
                 if deal['image_url']:
                     embeded_msg.set_image(url=deal['image_url'])
 
-                await channel.send(embed=embeded_msg)
+                await channel.send(embed=embeded_msg, silent=True)
         else:
             print("No new deals found.")
 
