@@ -8,19 +8,17 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import time
 
-# Discord bot setup
 bot = commands.Bot(command_prefix=".", intents=discord.Intents.all())
 
 last_seen_ids = set()
 
-# Selenium setup
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Run in headless mode
+    chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    service = Service("D:\VSCode Projects\chromedriver-win64\chromedriver.exe")  # Replace with your ChromeDriver path
+    service = Service("D:\VSCode Projects\chromedriver-win64\chromedriver.exe") 
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
@@ -29,10 +27,8 @@ def scrape_evike_deals():
     url = "https://www.evike.com/epic-deals/"
     driver.get(url)
 
-    # Wait for JavaScript to load (adjust delay as necessary)
     time.sleep(3)
 
-    # Get the page source after rendering
     soup = BeautifulSoup(driver.page_source, 'lxml')
     driver.quit()
 
@@ -51,16 +47,32 @@ def scrape_evike_deals():
         id_span = deal.find('span', id=lambda x: x and x.startswith('pid'))
         product_id = id_span.text.strip() if id_span else 'N/A'
 
-        # Extract countdown timer
         countdown_div = deal.find('div', class_='epiccountdown')
         deal_end_timestamp = None
 
         if countdown_div:
             try:
-                days = int(countdown_div.find('span', string="DAYS").find_previous('span').text.strip())
-                hours = int(countdown_div.find('span', string="HRS").find_previous('span').text.strip())
-                minutes = int(countdown_div.find('span', string="MIN").find_previous('span').text.strip())
-                seconds = int(countdown_div.find('span', string="SEC").find_previous('span').text.strip())
+                days, hours, minutes, seconds = 0, 0, 0, 0
+
+                days_span = countdown_div.find('span', string="DAYS")
+                if days_span:
+                    days_amount = days_span.find_previous('span', class_='countdown_amount')
+                    days = int(days_amount.text.strip()) if days_amount else 0
+
+                hours_span = countdown_div.find('span', string="HRS")
+                if hours_span:
+                    hours_amount = hours_span.find_previous('span', class_='countdown_amount')
+                    hours = int(hours_amount.text.strip()) if hours_amount else 0
+
+                minutes_span = countdown_div.find('span', string="MIN")
+                if minutes_span:
+                    minutes_amount = minutes_span.find_previous('span', class_='countdown_amount')
+                    minutes = int(minutes_amount.text.strip()) if minutes_amount else 0
+
+                seconds_span = countdown_div.find('span', string="SEC")
+                if seconds_span:
+                    seconds_amount = seconds_span.find_previous('span', class_='countdown_amount')
+                    seconds = int(seconds_amount.text.strip()) if seconds_amount else 0
 
                 now = datetime.now()
                 deal_end_time = now + timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
@@ -81,7 +93,7 @@ def scrape_evike_deals():
 
     return deals
 
-@tasks.loop(minutes=1)
+@tasks.loop(seconds=10)
 async def update_deals():
     global last_seen_ids
     channel_id = 1301969132178374737
@@ -97,7 +109,7 @@ async def update_deals():
             for deal in new_deals:
                 embeded_msg = discord.Embed(
                     title=f"{deal['name']} - ({deal['link']})",
-                    description=f"Discounted Price: ```diff - {deal['price']}```",
+                    description=f"Discounted Price: **{deal['price']}**",
                     color=discord.Color.red()
                 )
                 embeded_msg.set_thumbnail(url=bot.user.display_avatar.url)
