@@ -6,6 +6,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+from collections import defaultdict
+import asyncio
 import time
 
 bot = commands.Bot(command_prefix=".", intents=discord.Intents.all())
@@ -93,13 +95,11 @@ def scrape_evike_deals():
 
     return deals
 
-@tasks.loop(seconds=10)
-async def update_deals():
-    global last_seen_ids
-    channel_id = 1301969132178374737
-    channel = bot.get_channel(channel_id)
+active_loops = defaultdict(bool)
 
-    if channel is not None:
+async def send_deals_to_channel(channel):
+    global last_seen_ids
+    while active_loops[channel.id]:
         evike_deals = scrape_evike_deals()
         new_deals = [deal for deal in evike_deals if deal['product_id'] not in last_seen_ids]
 
@@ -113,22 +113,55 @@ async def update_deals():
                     color=discord.Color.red()
                 )
                 embeded_msg.set_thumbnail(url=bot.user.display_avatar.url)
-                embeded_msg.add_field(name=f"{deal['discount']}", value=f" Regular Price: ~~{deal['og_price']}~~\nProduct ID: {deal['product_id']}", inline=False)
+                embeded_msg.add_field(
+                    name=f"{deal['discount']}",
+                    value=f" Regular Price: ~~{deal['og_price']}~~\nProduct ID: {deal['product_id']}",
+                    inline=False,
+                )
 
                 if deal['image_url']:
                     embeded_msg.set_image(url=deal['image_url'])
-                    
+
                 if deal['end_time']:
                     embeded_msg.add_field(name="Deal Ends:", value=f"<t:{deal['end_time']}:F>")
 
-                await channel.send(embed=embeded_msg, silent=True)
+                await channel.send(embed=embeded_msg)
         else:
-            print("No new deals found.")
+            print(f"No new deals found for channel {channel.id}.")
 
-@bot.event
-async def on_ready():
-    print("Bot ready!")
-    update_deals.start()
+        await asyncio.sleep(10)
+
+
+@bot.command()
+async def start_deals(ctx):
+    """
+    Starts a loop for the current channel to post deals every 10 seconds.
+    """
+    channel = ctx.channel
+
+    if active_loops[channel.id]:
+        await ctx.send("The deal loop is already running in this channel!")
+    else:
+        active_loops[channel.id] = True
+        await ctx.send("Starting the deal loop in this channel!")
+        await send_deals_to_channel(channel)
+
+
+@bot.command()
+async def stop_deals(ctx):
+    """
+    Stops the loop for the current channel.
+    """
+    channel = ctx.channel
+
+    if not active_loops[channel.id]:
+        await ctx.send("The deal loop is not running in this channel!")
+    else:
+        active_loops[channel.id] = False
+        await ctx.send("Stopped the deal loop in this channel.")
+
+
+
 
 @bot.command()
 async def deals(ctx):
@@ -150,8 +183,54 @@ async def deals(ctx):
             embeded_msg.add_field(name="Deal Ends:", value=f"<t:{deal['end_time']}:F>")
 
         await ctx.send(embed=embeded_msg)
+        
+        
+        
+intents = discord.Intents.default()
+intents.messages = True
+intents.message_content = True
+intents.guilds = True
+intents.reactions = True
+intents.guild_reactions = True
+intents.members = True
+# A dictionary to map emoji to roles
+emoji_to_role = {
+    "👍": "Evike Deals",  # Replace with your emoji and role name
+}
+
+@bot.command()
+async def rr(ctx):
+    """Command to send a message for role assignment."""
+    message = await ctx.send(
+        "React to this message to get a role:\n" +
+        "\n".join([f"{emoji}: {role}" for emoji, role in emoji_to_role.items()])
+    )
+    for emoji in emoji_to_role.keys():
+        await message.add_reaction(emoji)
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    print(f"Reaction Added: {payload}")
+
+@bot.event
+async def on_raw_reaction_remove(payload):
+    print(f"Reaction Removed: {payload}")
+
+
+
+
+        
+        
+        
+
+
+@bot.event
+async def on_ready():
+    print("Bot ready!")
 
 with open("token.txt") as file:
     token = file.read()
 
 bot.run(token)
+
+
