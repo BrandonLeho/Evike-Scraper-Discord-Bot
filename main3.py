@@ -7,6 +7,7 @@ from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from collections import defaultdict
+from urllib.parse import urlparse
 import asyncio
 import time
 
@@ -97,6 +98,17 @@ def scrape_evike_deals():
 
 active_loops = defaultdict(bool)
 
+
+
+def is_valid_url(url):
+    """
+    Validates that a URL is well-formed and uses HTTP/HTTPS.
+    """
+    if not url:
+        return False
+    parsed = urlparse(url)
+    return bool(parsed.netloc) and bool(parsed.scheme) and parsed.scheme in ["http", "https"]
+
 async def send_deals_to_channel(channel):
     global last_seen_ids
     while active_loops[channel.id]:
@@ -119,17 +131,24 @@ async def send_deals_to_channel(channel):
                     inline=False,
                 )
 
-                if deal['image_url']:
+                if is_valid_url(deal['image_url']):
                     embeded_msg.set_image(url=deal['image_url'])
+                else:
+                    print(f"Invalid or missing image URL for product: {deal['product_id']}")
 
                 if deal['end_time']:
                     embeded_msg.add_field(name="Deal Ends:", value=f"<t:{deal['end_time']}:F>")
 
-                await channel.send(embed=embeded_msg)
+                try:
+                    await channel.send(embed=embeded_msg)
+                except discord.errors.HTTPException as e:
+                    print(f"Error sending message: {e}")
+
         else:
             print(f"No new deals found for channel {channel.id}.")
 
-        await asyncio.sleep(10)
+        await asyncio.sleep(60)
+
 
 
 @bot.command()
@@ -193,9 +212,8 @@ intents.guilds = True
 intents.reactions = True
 intents.guild_reactions = True
 intents.members = True
-# A dictionary to map emoji to roles
 emoji_to_role = {
-    "👍": "Evike Deals",  # Replace with your emoji and role name
+    "👍": "Evike Deals",
 }
 
 @bot.command()
@@ -210,12 +228,30 @@ async def rr(ctx):
 
 @bot.event
 async def on_raw_reaction_add(payload):
-    print(f"Reaction Added: {payload}")
+    """Event to handle reaction adds."""
+    if payload.member.bot:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    role_name = emoji_to_role.get(payload.emoji.name)
+    if role_name:
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            await payload.member.add_roles(role)
+            print(f"Assigned {role.name} to {payload.member.display_name}")
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    print(f"Reaction Removed: {payload}")
-
+    """Event to handle reaction removals."""
+    guild = bot.get_guild(payload.guild_id)
+    member = guild.get_member(payload.user_id)
+    if not member.bot:
+        role_name = emoji_to_role.get(payload.emoji.name)
+        if role_name:
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role:
+                await member.remove_roles(role)
+                print(f"Removed {role.name} from {member.display_name}")
 
 
 
@@ -232,5 +268,3 @@ with open("token.txt") as file:
     token = file.read()
 
 bot.run(token)
-
-
